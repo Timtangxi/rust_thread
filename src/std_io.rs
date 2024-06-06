@@ -6,7 +6,7 @@ use std::cmp::Ordering;
  * rust基础知识
  */
 
-fn geussed_play() {
+pub(crate) fn geussed_play() {
     println!("Guess the number!");
     let secret_number = rand::thread_rng().gen_range(1..=100);
     loop {
@@ -45,49 +45,7 @@ fn geussed_play() {
     }
 }
 
-const THREE_HOURS_IN_SECONDS: u32 = 60 * 60 * 3;
-fn num_run() {
-
-    // 数组
-    let a: [i32; 5] = [1, 2, 3, 4, 5];
-    println!("Please enter an array index.");
-    let mut index = String::new();
-    io::stdin()
-        .read_line(&mut index)
-        .expect("Failed to read line");
-    let index: usize = index
-        .trim()
-        .parse()
-        .expect("Index entered was not a number");
-    println!("The value of the element at index {index} is: {}", a[index]);
-
-    // 元组
-    let tup: (i32, f64, u8) = (500, 6.4, 1);
-    println!("The value of x is: {}", tup.0);
-
-    // 隐藏
-    let mut x: i32 = 5;
-    println!("The value of x is: {x}");
-    x = 6;
-    println!("The value of x is: {THREE_HOURS_IN_SECONDS}");
-    let x: i32 = x + 1;
-    {
-        let mut x: i32 = x * 2;
-        x =  5;
-        println!("The value of x in the inner scope is: {x}");
-    }
-    println!("The value of x in the inner scope is: {x}");
-    
-    // 字符串
-    let spaces: &str = "   ";
-    let spaces = spaces.len();
-    println!("The value of x in the inner scope is: {spaces}");
-}
-
-fn five(x:i32) -> i32 {
-    return x + 5;
-}
-fn string_test(){
+pub(crate) fn string_test(){
     // 代码块
     {
         let y = {
@@ -186,37 +144,7 @@ fn string_test(){
                     
 }
 
-fn calculate_length(s: String) -> (String, usize) {
-    let length = s.len(); // len() 返回字符串的长度
-    (s, length)
-}
-
-fn gives_ownership() -> String {             // gives_ownership 会将返回值移动给调用它的函数
-    let some_string = String::from("yours"); // some_string 进入作用域。
-    some_string                              // 返回 some_string 并移出给调用的函数
-}
-
-// takes_and_gives_back 将传入字符串并返回该值
-fn takes_and_gives_back(a_string: String) -> String { // a_string 进入作用域
-    a_string  // 返回 a_string 并移出给调用的函数
-}
-
-fn takes_ownership(some_string: String) { // some_string 进入作用域
-    println!("{}", some_string);
-} // 这里，some_string 移出作用域并调用 `drop` 方法。占用的内存被释放
-
-fn makes_copy(some_integer: i32) { // some_integer 进入作用域
-    println!("{}", some_integer);
-} // 这里，some_integer 移出作用域。没有特殊之处
-
-fn calculate_length_test(s: &String) -> usize {
-    s.len()
-}
-
-fn change(some_string: &mut String) {
-    some_string.push_str(", world");
-}
-fn ohther() {
+fn other() {
     {
         let s1 = String::from("hello"); 
         let len = calculate_length_test(&s1);      //  引用（reference）像一个指针，因为它是一个地址
@@ -259,6 +187,79 @@ fn ohther() {
     }
 }
 
+const THREE_HOURS_IN_SECONDS: u32 = 60 * 60 * 3;
+fn num_run() {
+
+    // 数组
+    let a: [i32; 5] = [1, 2, 3, 4, 5];
+    println!("Please enter an array index.");
+    let mut index = String::new();
+    io::stdin()
+        .read_line(&mut index)
+        .expect("Failed to read line");
+    let index: usize = index
+        .trim()
+        .parse()
+        .expect("Index entered was not a number");
+    println!("The value of the element at index {index} is: {}", a[index]);
+
+    // 元组
+    let tup: (i32, f64, u8) = (500, 6.4, 1);
+    println!("The value of x is: {}", tup.0);
+
+    // 隐藏
+    let mut x: i32 = 5;
+    println!("The value of x is: {x}");
+    x = 6;
+    println!("The value of x is: {THREE_HOURS_IN_SECONDS}");
+    let x: i32 = x + 1;
+    {
+        let mut x: i32 = x * 2;
+        x =  5;
+        println!("The value of x in the inner scope is: {x}");
+    }
+    println!("The value of x in the inner scope is: {x}");
+    
+    // 字符串
+    let spaces: &str = "   ";
+    let spaces = spaces.len();
+    println!("The value of x in the inner scope is: {spaces}");
+}
+
+fn five(x:i32) -> i32 {
+    return x + 5;
+}
+
+fn calculate_length(s: String) -> (String, usize) {
+    let length = s.len(); // len() 返回字符串的长度
+    (s, length)
+}
+
+fn gives_ownership() -> String {             // gives_ownership 会将返回值移动给调用它的函数
+    let some_string = String::from("yours"); // some_string 进入作用域。
+    some_string                              // 返回 some_string 并移出给调用的函数
+}
+
+// takes_and_gives_back 将传入字符串并返回该值
+fn takes_and_gives_back(a_string: String) -> String { // a_string 进入作用域
+    a_string  // 返回 a_string 并移出给调用的函数
+}
+
+fn takes_ownership(some_string: String) { // some_string 进入作用域
+    println!("{}", some_string);
+} // 这里，some_string 移出作用域并调用 `drop` 方法。占用的内存被释放
+
+fn makes_copy(some_integer: i32) { // some_integer 进入作用域
+    println!("{}", some_integer);
+} // 这里，some_integer 移出作用域。没有特殊之处
+
+fn calculate_length_test(s: &String) -> usize {
+    s.len()
+}
+
+fn change(some_string: &mut String) {
+    some_string.push_str(", world");
+}
 
 fn first_word(s: &String) -> &str {
     let bytes = s.as_bytes();// 用 as_bytes 方法将 String 转化为字节数组。
