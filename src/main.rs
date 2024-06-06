@@ -212,8 +212,63 @@ fn makes_copy(some_integer: i32) { // some_integer 进入作用域
 fn calculate_length_test(s: &String) -> usize {
     s.len()
 }
-fn main() {
-    let s1 = String::from("hello"); 
-    let len = calculate_length_test(&s1);      //  引用（reference）像一个指针，因为它是一个地址
-    println!("The length of '{}' is {}.", s1, len);   //  传入地址，s1可用
+
+fn change(some_string: &mut String) {
+    some_string.push_str(", world");
 }
+fn main() {
+
+    {
+        let s1 = String::from("hello"); 
+        let len = calculate_length_test(&s1);      //  引用（reference）像一个指针，因为它是一个地址
+        println!("The length of '{}' is {}.", s1, len);   //  传入地址，s1可用
+
+        let mut s = String::from("hello");
+        change(&mut s);
+    }
+
+    {
+        let mut s = String::from("hello");
+        {
+            let r1 = &mut s;
+            let r2 = &mut s;    //
+            // println!("The length of '{}' is {}.", r1, r2);   //  同一作用域不能重复引用，可改变
+        } // r1 在这里离开了作用域，所以我们完全可以创建一个新的引用
+        let r2 = &mut s;   
+        println!("The length of is {}.", r2);   //  同一作用域不能重复引用 
+    }
+
+    {
+        let mut s = String::from("hello");
+        let r1 = &s;
+        let r2 = &s;    //
+        // println!("The length of '{}' is {}.", r1, r2);   //  同一作用域不能重复引用
+        let r3 = &s;   
+        println!("The length of is {}, {}, {}",r1, r2, r3);  // 同一作用域能重复引用，不可改变
+    }  // 类似于不能同时对同一地址的数据做出改动，但是仅是引用不可改动的，可重复引用。
+
+
+    {
+        let mut s = String::from("hello1 world");
+        {
+            let word = first_word(&s); // word 的值为 5
+            println!("The length of is {}, {}",word, s);  // 同一作用域能重复引用，不可改变
+        }
+        change(&mut s);
+        println!("The length of is {}", s);  // 同一作用域能重复引用，不可改变
+        s.clear(); 
+    }
+}
+
+
+fn first_word(s: &String) -> &str {
+    let bytes = s.as_bytes();// 用 as_bytes 方法将 String 转化为字节数组。
+
+    for (i, &item) in bytes.iter().enumerate() {
+        if item == b' ' {
+            return &s[0..i];
+        }
+    }
+    &s[..]
+}
+    
