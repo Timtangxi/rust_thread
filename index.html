@@ -1,10 +1,517 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-    <title>Rust MCU SOC</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>项目名称 - GitHub</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --header-bg: #24292f;
+            --primary: #0969da;
+            --border: #d0d7de;
+            --text: #24292f;
+            --text-secondary: #57606a;
+            --bg: #ffffff;
+            --bg-secondary: #f6f8fa;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        }
+        
+        body {
+            color: var(--text);
+            background-color: var(--bg);
+            line-height: 1.5;
+        }
+        
+        /* 头部样式 */
+        header {
+            background-color: var(--header-bg);
+            padding: 16px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: white;
+        }
+        
+        .header-left, .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .logo {
+            font-weight: bold;
+            font-size: 20px;
+        }
+        
+        .search-bar {
+            padding: 5px 12px;
+            border-radius: 6px;
+            border: none;
+            width: 300px;
+            background-color: rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+        
+        .search-bar::placeholder {
+            color: rgba(255, 255, 255, 0.6);
+        }
+        
+        /* 导航栏 */
+        nav {
+            border-bottom: 1px solid var(--border);
+            padding: 0 32px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .nav-tabs {
+            display: flex;
+            list-style: none;
+        }
+        
+        .nav-tab {
+            padding: 16px 8px;
+            margin-right: 16px;
+            font-size: 14px;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+        }
+        
+        .nav-tab.active {
+            border-bottom-color: #fd8c73;
+            font-weight: 600;
+        }
+        
+        .nav-tab:hover {
+            border-bottom-color: var(--border);
+        }
+        
+        /* 主内容区 */
+        main {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 24px 32px;
+            display: flex;
+            gap: 24px;
+        }
+        
+        .sidebar {
+            width: 296px;
+            flex-shrink: 0;
+        }
+        
+        .content {
+            flex-grow: 1;
+            min-width: 0;
+        }
+        
+        /* 仓库信息卡片 */
+        .repo-card {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 16px;
+            margin-bottom: 16px;
+            background-color: var(--bg);
+        }
+        
+        .repo-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        
+        .repo-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            margin-right: 12px;
+        }
+        
+        .repo-title {
+            font-size: 20px;
+            font-weight: 600;
+        }
+        
+        .repo-meta {
+            display: flex;
+            gap: 16px;
+            margin: 8px 0;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+        
+        .repo-description {
+            margin: 16px 0;
+            font-size: 14px;
+        }
+        
+        .repo-stats {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .repo-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        /* 按钮样式 */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 5px 16px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            border: 1px solid var(--border);
+            background-color: var(--bg-secondary);
+            color: var(--text);
+            text-decoration: none;
+            gap: 4px;
+        }
+        
+        .btn-primary {
+            background-color: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            margin: 16px 0;
+        }
+        
+        /* README 区域 */
+        .readme-container {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-top: 24px;
+        }
+        
+        .readme-header {
+            padding: 12px 16px;
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            border-radius: 6px 6px 0 0;
+        }
+        
+        .readme-content {
+            padding: 32px;
+        }
+        
+        .readme-content h1 {
+            font-size: 24px;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .readme-content h2 {
+            font-size: 20px;
+            margin: 24px 0 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .readme-content p {
+            margin-bottom: 16px;
+        }
+        
+        .readme-content code {
+            font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+            background-color: var(--bg-secondary);
+            padding: 0.2em 0.4em;
+            border-radius: 6px;
+            font-size: 85%;
+        }
+        
+        .readme-content pre {
+            background-color: var(--bg-secondary);
+            padding: 16px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin-bottom: 16px;
+        }
+        
+        /* 文件列表 */
+        .file-list {
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            margin-top: 24px;
+        }
+        
+        .file-header {
+            padding: 12px 16px;
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-radius: 6px 6px 0 0;
+        }
+        
+        .file-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .file-item:last-child {
+            border-bottom: none;
+        }
+        
+        .file-icon {
+            margin-right: 8px;
+            color: var(--text-secondary);
+        }
+        
+        .file-name {
+            flex-grow: 1;
+        }
+        
+        .file-meta {
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            main {
+                flex-direction: column;
+                padding: 16px;
+            }
+            
+            .sidebar {
+                width: 100%;
+            }
+            
+            header, nav {
+                padding: 16px;
+            }
+            
+            .search-bar {
+                width: 200px;
+            }
+        }
+    </style>
 </head>
 <body>
-    <h1>Welcome to Rust MCU SOC</h1>
-    <p><a href="/Cargo.toml">Cargo.toml</a></p>
+    <header>
+        <div class="header-left">
+            <div class="logo">
+                <i class="fab fa-github"></i>
+            </div>
+            <input type="text" class="search-bar" placeholder="搜索或跳转到...">
+            <div>Pull requests</div>
+            <div>Issues</div>
+            <div>Marketplace</div>
+            <div>Explore</div>
+        </div>
+        <div class="header-right">
+            <i class="fas fa-bell"></i>
+            <i class="fas fa-plus"></i>
+            <img src="https://via.placeholder.com/20" alt="用户头像" style="border-radius: 50%;">
+        </div>
+    </header>
+    
+    <nav>
+        <ul class="nav-tabs">
+            <li class="nav-tab"><i class="fas fa-book"></i> 代码</li>
+            <li class="nav-tab"><i class="fas fa-code-pull-request"></i> Pull requests</li>
+            <li class="nav-tab active"><i class="fas fa-code-commit"></i> Commits</li>
+            <li class="nav-tab"><i class="fas fa-table-list"></i> Issues</li>
+            <li class="nav-tab"><i class="fas fa-chart-line"></i> Insights</li>
+        </ul>
+    </nav>
+    
+    <main>
+        <aside class="sidebar">
+            <div class="repo-card">
+                <div class="repo-header">
+                    <img src="https://via.placeholder.com/40" alt="仓库头像" class="repo-avatar">
+                    <div>
+                        <div class="repo-title">username/repository</div>
+                        <div class="repo-meta">
+                            <span><i class="fas fa-lock"></i> Private</span>
+                            <span><i class="fas fa-code-fork"></i> Fork</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="repo-description">
+                    这是一个示例仓库的描述信息。这里可以写关于项目的详细介绍、用途等信息。
+                </div>
+                
+                <div class="repo-stats">
+                    <div class="repo-stat">
+                        <i class="fas fa-star"></i>
+                        <span>1.2k</span>
+                    </div>
+                    <div class="repo-stat">
+                        <i class="fas fa-code-fork"></i>
+                        <span>256</span>
+                    </div>
+                    <div class="repo-stat">
+                        <i class="fas fa-circle-exclamation"></i>
+                        <span>MIT License</span>
+                    </div>
+                </div>
+                
+                <div class="btn-group">
+                    <a href="#" class="btn">
+                        <i class="fas fa-code-fork"></i> Fork
+                        <span class="count">256</span>
+                    </a>
+                    <a href="#" class="btn">
+                        <i class="fas fa-star"></i> Star
+                        <span class="count">1.2k</span>
+                    </a>
+                </div>
+                
+                <div>
+                    <a href="#" class="btn btn-primary" style="width: 100%;">
+                        <i class="fas fa-code"></i> Code
+                        <i class="fas fa-caret-down"></i>
+                    </a>
+                </div>
+            </div>
+            
+            <div class="repo-card">
+                <h3>关于</h3>
+                <p>这是一个示例仓库的"关于"部分，可以添加更多项目相关信息。</p>
+                
+                <div style="margin-top: 16px;">
+                    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                        <i class="fas fa-globe" style="margin-right: 8px;"></i>
+                        <a href="#">https://example.com</a>
+                    </div>
+                    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                        <i class="fas fa-tags" style="margin-right: 8px;"></i>
+                        <div>
+                            <a href="#" class="btn" style="padding: 2px 8px; font-size: 12px;">javascript</a>
+                            <a href="#" class="btn" style="padding: 2px 8px; font-size: 12px;">html</a>
+                            <a href="#" class="btn" style="padding: 2px 8px; font-size: 12px;">css</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="repo-card">
+                <h3>发布</h3>
+                <p style="margin-bottom: 12px;">当前没有发布版本</p>
+                <a href="#" class="btn" style="width: 100%;">创建新发布</a>
+            </div>
+        </aside>
+        
+        <div class="content">
+            <div class="file-list">
+                <div class="file-header">
+                    <div>
+                        <i class="fas fa-code-branch"></i>
+                        <span>main</span>
+                    </div>
+                    <div>
+                        <a href="#" class="btn" style="padding: 3px 12px; font-size: 12px;">
+                            <i class="fas fa-code-branch"></i> 分支: 1
+                        </a>
+                        <a href="#" class="btn" style="padding: 3px 12px; font-size: 12px;">
+                            <i class="fas fa-tag"></i> 标签: 0
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="file-item">
+                    <i class="fas fa-folder file-icon"></i>
+                    <div class="file-name">docs</div>
+                    <div class="file-meta">文档目录</div>
+                </div>
+                
+                <div class="file-item">
+                    <i class="fas fa-file file-icon"></i>
+                    <div class="file-name">index.html</div>
+                    <div class="file-meta">2 days ago</div>
+                </div>
+                
+                <div class="file-item">
+                    <i class="fas fa-file file-icon"></i>
+                    <div class="file-name">README.md</div>
+                    <div class="file-meta">3 days ago</div>
+                </div>
+                
+                <div class="file-item">
+                    <i class="fas fa-file file-icon"></i>
+                    <div class="file-name">package.json</div>
+                    <div class="file-meta">1 week ago</div>
+                </div>
+                
+                <div class="file-item">
+                    <i class="fas fa-file file-icon"></i>
+                    <div class="file-name">LICENSE</div>
+                    <div class="file-meta">1 week ago</div>
+                </div>
+            </div>
+            
+            <div class="readme-container">
+                <div class="readme-header">
+                    <i class="fas fa-book" style="margin-right: 8px;"></i>
+                    README.md
+                </div>
+                <div class="readme-content">
+                    <h1>项目名称</h1>
+                    
+                    <p>这是一个示例项目的 README 文件。这里通常包含项目的介绍、安装说明、使用方法等信息。</p>
+                    
+                    <h2>功能特性</h2>
+                    
+                    <ul>
+                        <li>功能一：描述功能</li>
+                        <li>功能二：描述功能</li>
+                        <li>功能三：描述功能</li>
+                    </ul>
+                    
+                    <h2>安装</h2>
+                    
+                    <p>使用 npm 安装：</p>
+                    
+                    <pre><code>npm install package-name</code></pre>
+                    
+                    <p>或者使用 yarn：</p>
+                    
+                    <pre><code>yarn add package-name</code></pre>
+                    
+                    <h2>使用示例</h2>
+                    
+                    <pre><code>const example = require('package-name');
+
+example.doSomething();</code></pre>
+                    
+                    <h2>贡献</h2>
+                    
+                    <p>欢迎提交 Pull Request 或 Issue。</p>
+                    
+                    <h2>许可证</h2>
+                    
+                    <p>MIT © 2023 作者名称</p>
+                </div>
+            </div>
+        </div>
+    </main>
 </body>
 </html>
