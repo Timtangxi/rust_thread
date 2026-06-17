@@ -1,7 +1,7 @@
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {
-        $crate::uart::write_fmt(format_args!($($arg)*))
+        $crate::drivers::uart::write_fmt(format_args!($($arg)*))
     };
 }
 

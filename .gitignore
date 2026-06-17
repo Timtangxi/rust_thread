@@ -1,1 +1,27 @@
-target
+/target/
+
+# Local/editor files
+/.idea/
+/.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and QEMU traces
+*.log
+*.trace
+qemu.log
+
+# Generated debug artifacts
+*.bin
+*.elf
+*.map
+*.dump
+*.dis
+
+# Old packaged demo artifacts
+*.zip

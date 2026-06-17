@@ -18,7 +18,7 @@ pub const SPURIOUS_IRQ: u32 = 1023;
 pub fn init() {
     unsafe {
         write_volatile(GICD_CTLR as *mut u32, 0);
-        enable_irq(crate::timer::PHYSICAL_TIMER_IRQ);
+        enable_irq(crate::drivers::timer::PHYSICAL_TIMER_IRQ);
         write_volatile(GICC_PMR as *mut u32, 0xff);
         write_volatile(GICC_CTLR as *mut u32, 1);
         write_volatile(GICD_CTLR as *mut u32, 1);

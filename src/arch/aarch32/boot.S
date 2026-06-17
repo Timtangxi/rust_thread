@@ -51,8 +51,15 @@ undefined_vector:
     b exception_common
 
 svc_vector:
-    mov r0, #2
-    b exception_common
+    srsdb sp!, #MODE_SVC
+    cps #MODE_SVC
+    cpsid i
+    push {{r0-r12, lr}}
+    mov r0, sp
+    bl svc_rust_entry
+    mov sp, r0
+    pop {{r0-r12, lr}}
+    rfefd sp!
 
 prefetch_abort_vector:
     sub lr, lr, #4
