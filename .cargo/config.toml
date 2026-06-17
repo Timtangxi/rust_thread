@@ -1,0 +1,11 @@
+[build]
+target = "armv7a-none-eabi"
+
+[target.armv7a-none-eabi]
+rustflags = [
+  "-C", "link-arg=-Tlinker.ld",
+  "-C", "link-arg=--nmagic",
+  "-C", "target-cpu=cortex-a15",
+  "-C", "relocation-model=static",
+  "-C", "force-frame-pointers=yes",
+]
