@@ -1,5 +1,13 @@
+pub mod address;
+pub mod console;
+pub mod loader;
+pub mod log;
 pub mod memory;
+pub mod process;
 pub mod queue;
 pub mod scheduler;
+pub mod sleep;
 pub mod syscall;
 pub mod task;
+pub mod user;
+pub mod wait;

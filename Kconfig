@@ -1,0 +1,101 @@
+mainmenu "Rust AArch32 Kernel Configuration"
+
+menu "Target"
+
+config ARCH_AARCH32
+	bool "ARMv7-A / AArch32"
+	default y
+
+config PLATFORM_QEMU_VIRT
+	bool "QEMU virt platform"
+	default y
+	depends on ARCH_AARCH32
+
+config QEMU_MEMORY_MB
+	int "QEMU RAM size in MiB"
+	default 128
+	depends on PLATFORM_QEMU_VIRT
+
+endmenu
+
+menu "Kernel"
+
+config BOOT_VERBOSE
+	bool "Verbose boot diagnostics"
+	default n
+
+config DEMO_KERNEL_TASKS
+	bool "Run verbose kernel demo tasks"
+	default n
+
+config MMU
+	bool "Enable ARMv7-A MMU"
+	default y
+
+config USER
+	bool "Enable user mode processes"
+	default y
+	depends on MMU
+
+endmenu
+
+menu "Boot"
+
+config QEMU_FDT_LOADER
+	bool "Load QEMU generated DTB through loader device"
+	default y
+	depends on PLATFORM_QEMU_VIRT
+
+config QEMU_DTB_ADDR
+	hex "DTB loader physical address"
+	default 0x47f00000
+	depends on QEMU_FDT_LOADER
+
+endmenu
+
+menu "Drivers"
+
+config VIRTIO_MMIO
+	bool "VirtIO MMIO transport"
+	default y
+	depends on PLATFORM_QEMU_VIRT
+
+config VIRTIO_BLK
+	bool "Attach QEMU virtio-blk device"
+	default y
+	depends on VIRTIO_MMIO
+
+config QEMU_VIRTIO_BLK_PATH
+	string "QEMU virtio-blk backend"
+	default "fat:rw:."
+	depends on VIRTIO_BLK
+
+endmenu
+
+menu "File systems"
+
+config FS
+	bool "Virtual file system layer"
+	default y
+
+config INITRD
+	bool "Built-in initrd file system"
+	default y
+	depends on FS
+
+config INITRD_EXTERNAL
+	bool "External initrd image"
+	default n
+	depends on INITRD
+
+config INITRD_EXTERNAL_PATH
+	string "External initrd image path"
+	default "/home/tang/rust/rootfs.cpio.uboot"
+	depends on INITRD_EXTERNAL
+
+config INITRD_LOAD_ADDR
+	hex "External initrd loader physical address"
+	default 0x46000000
+	depends on INITRD_EXTERNAL
+
+endmenu

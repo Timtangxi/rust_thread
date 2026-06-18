@@ -2,9 +2,11 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use aarch32_cpu::generic_timer::{El1PhysicalTimer, GenericTimer};
 
-pub const PHYSICAL_TIMER_IRQ: u32 = 30;
-
 static TIMER_TICKS: AtomicU32 = AtomicU32::new(0);
+
+pub fn physical_timer_irq() -> u32 {
+    crate::platform::fdt::timer().physical_irq.irq
+}
 
 pub fn init(hz: u32) -> u32 {
     let mut timer = unsafe { El1PhysicalTimer::new() };

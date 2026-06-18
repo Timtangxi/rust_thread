@@ -7,17 +7,35 @@ SECTIONS
   . = KERNEL_LOAD_ADDR;
 
   .text : ALIGN(4K) {
+    __text_start = .;
     KEEP(*(.text.boot))
     KEEP(*(.vectors))
     *(.text .text.*)
+    __text_end = .;
   }
 
   .rodata : ALIGN(4K) {
+    __rodata_start = .;
     *(.rodata .rodata.*)
+    __rodata_end = .;
+  }
+
+  .user_text : ALIGN(4K) {
+    __user_text_start = .;
+    KEEP(*(.user.text .user.text.*))
+    __user_text_end = .;
+  }
+
+  .user_rodata : ALIGN(4K) {
+    __user_rodata_start = .;
+    KEEP(*(.user.rodata .user.rodata.*))
+    __user_rodata_end = .;
   }
 
   .data : ALIGN(4K) {
+    __data_start = .;
     *(.data .data.*)
+    __data_end = .;
   }
 
   .bss (NOLOAD) : ALIGN(4K) {

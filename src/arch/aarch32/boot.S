@@ -5,11 +5,14 @@
 
 .equ MODE_SVC, 0x13
 .equ MODE_IRQ, 0x12
+.equ MODE_SYS, 0x1f
 .equ I_BIT, 0x80
 .equ F_BIT, 0x40
 
 _start:
     cpsid if
+    ldr r3, =boot_fdt_ptr
+    str r2, [r3]
 
     cps #MODE_IRQ
     ldr sp, =__irq_stack_top
@@ -55,9 +58,23 @@ svc_vector:
     cps #MODE_SVC
     cpsid i
     push {{r0-r12, lr}}
+    sub sp, sp, #8
+    cps #MODE_SYS
+    mov r0, sp
+    mov r1, lr
+    cps #MODE_SVC
+    str r0, [sp]
+    str r1, [sp, #4]
     mov r0, sp
     bl svc_rust_entry
     mov sp, r0
+    ldr r0, [sp]
+    ldr r1, [sp, #4]
+    cps #MODE_SYS
+    mov sp, r0
+    mov lr, r1
+    cps #MODE_SVC
+    add sp, sp, #8
     pop {{r0-r12, lr}}
     rfefd sp!
 
@@ -91,8 +108,28 @@ irq_vector:
     srsdb sp!, #MODE_SVC
     cps #MODE_SVC
     push {{r0-r12, lr}}
+    sub sp, sp, #8
+    cps #MODE_SYS
+    mov r0, sp
+    mov r1, lr
+    cps #MODE_SVC
+    str r0, [sp]
+    str r1, [sp, #4]
     mov r0, sp
     bl irq_rust_entry
     mov sp, r0
+    ldr r0, [sp]
+    ldr r1, [sp, #4]
+    cps #MODE_SYS
+    mov sp, r0
+    mov lr, r1
+    cps #MODE_SVC
+    add sp, sp, #8
     pop {{r0-r12, lr}}
     rfefd sp!
+
+.section .data.boot, "aw"
+.global boot_fdt_ptr
+.align 2
+boot_fdt_ptr:
+    .word 0

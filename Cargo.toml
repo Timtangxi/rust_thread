@@ -3,6 +3,10 @@ name = "rust_scheduler_demo"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["mmu"]
+mmu = []
+
 [dependencies]
 aarch32-cpu = "0.3.0"
 

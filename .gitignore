@@ -1,4 +1,7 @@
 /target/
+/build/
+/.config
+/include/generated/
 
 # Local/editor files
 /.idea/
