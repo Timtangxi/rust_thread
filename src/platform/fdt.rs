@@ -129,9 +129,10 @@ impl TimerDevice {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum VirtioKind {
     Unknown,
+    Network,
     Block,
 }
 
@@ -139,6 +140,7 @@ impl VirtioKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Unknown => "unknown",
+            Self::Network => "network",
             Self::Block => "block",
         }
     }

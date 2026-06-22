@@ -13,11 +13,12 @@ mod kernel;
 mod platform;
 mod print;
 
-use drivers::{gic, timer, uart, virtio};
+use drivers::{device, gic, timer, uart, virtio};
 use kernel::console;
 #[cfg(feature = "mmu")]
 use kernel::loader;
 use kernel::memory;
+use kernel::net;
 use kernel::scheduler::Scheduler;
 use kernel::syscall;
 
@@ -38,6 +39,7 @@ pub extern "C" fn kernel_main() -> ! {
     let boot_info = platform::fdt::init();
     let initrd_image = platform::initrd::init();
     uart::init();
+    uart::register_device();
 
     println!();
     println!("rust aarch32 round-robin kernel");
@@ -118,6 +120,7 @@ pub extern "C" fn kernel_main() -> ! {
     }
 
     cpu::install_exception_vectors();
+    cpu::enable_vfp();
 
     #[cfg(feature = "mmu")]
     {
@@ -149,27 +152,14 @@ pub extern "C" fn kernel_main() -> ! {
     #[cfg(not(feature = "mmu"))]
     println!("mmu: disabled (built without default feature `mmu`)");
 
-    fs::vfs::init();
-    println!(
-        "fs: initrd={} external={} format={} files={} builtin={}",
-        config::CONFIG_INITRD,
-        initrd_image.is_present(),
-        initrd_image.format.as_str(),
-        fs::vfs::external_files(),
-        fs::vfs::builtin_files()
-    );
-    if initrd_image.is_present() {
-        if let Some((path, size)) = rootfs_probe() {
-            println!("fs: rootfs probe {} size={}", path, size);
-        }
-    }
-
     gic::init();
+    gic::register_device();
 
     if config::CONFIG_VIRTIO_MMIO {
         let mut virtio_probes =
             [const { virtio::VirtioProbe::empty() }; platform::fdt::MAX_VIRTIO_MMIO];
         let virtio_count = virtio::probe_all(&mut virtio_probes);
+        let _ = virtio::register_probes(&virtio_probes[..virtio_count]);
         if config::CONFIG_BOOT_VERBOSE {
             for probe in virtio_probes.iter().take(virtio_count) {
                 println!(
@@ -188,7 +178,23 @@ pub extern "C" fn kernel_main() -> ! {
         }
     }
 
+    fs::vfs::init();
+    println!(
+        "fs: ext4={} ext4_error={} initrd={} external={} format={} files={} builtin={}",
+        fs::vfs::ext4_mounted(),
+        fs::vfs::ext4_error() as i32,
+        config::CONFIG_INITRD,
+        initrd_image.is_present(),
+        initrd_image.format.as_str(),
+        fs::vfs::external_files(),
+        fs::vfs::builtin_files()
+    );
+    if let Some((path, size)) = rootfs_probe() {
+        println!("fs: rootfs probe {} size={}", path, size);
+    }
+
     let tick_hz = timer::init(100);
+    timer::register_device();
     if config::CONFIG_BOOT_VERBOSE {
         println!(
             "timer: generic physical timer at {} Hz irq={}",
@@ -202,6 +208,8 @@ pub extern "C" fn kernel_main() -> ! {
             console::INPUT_CAPACITY,
             console::LINE_CAPACITY
         );
+        dump_devices();
+        dump_net();
     }
 
     unsafe {
@@ -219,6 +227,72 @@ pub extern "C" fn kernel_main() -> ! {
             (*scheduler).dump_tasks();
         }
         (*scheduler).start();
+    }
+}
+
+fn dump_devices() {
+    println!("device-manager: devices={}", device::count());
+    for index in 0..device::count() {
+        let Some(node) = device::get(index) else {
+            continue;
+        };
+        println!(
+            "  dev{} name={} driver={} class={} state={} mmio={:#010x}+{:#x} irq={} major={} minor={} wait={:#010x}",
+            node.id.as_usize(),
+            node.name,
+            node.driver,
+            node.class.as_str(),
+            node.state.as_str(),
+            node.mmio_base,
+            node.mmio_size,
+            node.irq,
+            node.major,
+            node.minor,
+            node.wait_channel
+        );
+    }
+}
+
+fn dump_net() {
+    println!(
+        "net: interfaces={} virtio-net={}",
+        net::interface::count(),
+        virtio::network_device_count()
+    );
+    for index in 0..net::interface::MAX_NET_INTERFACES {
+        let Some(iface) = net::interface::get(index) else {
+            continue;
+        };
+        println!(
+            "  net{} name={} mac={:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x} ipv4={}.{}.{}.{} mtu={} rxq={} txq={} wait={:#010x}",
+            index,
+            iface.name_str(),
+            iface.mac.0[0],
+            iface.mac.0[1],
+            iface.mac.0[2],
+            iface.mac.0[3],
+            iface.mac.0[4],
+            iface.mac.0[5],
+            iface.ipv4.0[0],
+            iface.ipv4.0[1],
+            iface.ipv4.0[2],
+            iface.ipv4.0[3],
+            iface.mtu,
+            iface.rx_len,
+            iface.tx_len,
+            net::interface::wait_channel(index)
+        );
+        println!(
+            "    stats rx={} tx={} drop={} err={} arp={} icmp={} udp={} tcp={}",
+            iface.stats.rx_packets,
+            iface.stats.tx_packets,
+            iface.stats.rx_dropped + iface.stats.tx_dropped,
+            iface.stats.rx_errors + iface.stats.tx_errors,
+            iface.stats.arp_packets,
+            iface.stats.icmp_packets,
+            iface.stats.udp_packets,
+            iface.stats.tcp_packets
+        );
     }
 }
 

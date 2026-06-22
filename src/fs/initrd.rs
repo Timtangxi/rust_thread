@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::fs::vfs::{FileSystemId, FileType, FileView, InodeRef, Metadata};
+use crate::fs::vfs::{DirEntry, FileSystemId, FileType, FileView, InodeRef, Metadata};
 use crate::kernel::loader;
 
 const ROOT_INO: usize = 0;
@@ -43,21 +43,21 @@ pub fn metadata(inode_ref: InodeRef) -> Option<Metadata> {
     }
 
     if inode_ref.ino == ROOT_INO {
-        return Some(Metadata {
-            inode: inode_ref,
-            file_type: FileType::Directory,
-            size: INITRD_FILES.len(),
-            mode: 0o555,
-        });
+        return Some(Metadata::new(
+            inode_ref,
+            FileType::Directory,
+            INITRD_FILES.len(),
+            0o555,
+        ));
     }
 
     let file = file_by_ino(inode_ref.ino)?;
-    Some(Metadata {
-        inode: inode_ref,
-        file_type: FileType::Regular,
-        size: file.data.len(),
-        mode: file.mode,
-    })
+    Some(Metadata::new(
+        inode_ref,
+        FileType::Regular,
+        file.data.len(),
+        file.mode,
+    ))
 }
 
 pub fn open(inode_ref: InodeRef) -> Option<FileView> {
@@ -71,6 +71,26 @@ pub fn open(inode_ref: InodeRef) -> Option<FileView> {
         name: file.name,
         data: file.data,
     })
+}
+
+pub fn read_dir(inode_ref: InodeRef, offset: usize, dst: &mut [DirEntry]) -> Result<usize, u32> {
+    if inode_ref.fs != FileSystemId::Initrd || inode_ref.ino != ROOT_INO {
+        return Err(crate::kernel::syscall::EINVAL);
+    }
+
+    let mut written = 0usize;
+    for (index, file) in INITRD_FILES.iter().enumerate().skip(offset) {
+        if written >= dst.len() {
+            break;
+        }
+        dst[written] = DirEntry::new(
+            inode(FIRST_FILE_INO + index),
+            FileType::Regular,
+            trim_name(file.name.as_bytes()),
+        );
+        written += 1;
+    }
+    Ok(written)
 }
 
 fn inode(ino: usize) -> InodeRef {
@@ -88,6 +108,13 @@ fn file_by_ino(ino: usize) -> Option<InitrdEntry> {
 fn trim_nul(bytes: &[u8]) -> &[u8] {
     match bytes.iter().position(|byte| *byte == 0) {
         Some(end) => &bytes[..end],
+        None => bytes,
+    }
+}
+
+fn trim_name(bytes: &[u8]) -> &[u8] {
+    match bytes.iter().rposition(|byte| *byte == b'/') {
+        Some(pos) => &bytes[pos + 1..],
         None => bytes,
     }
 }

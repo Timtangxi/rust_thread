@@ -88,7 +88,7 @@ impl Cursor {
                 InitrdFormat::None => return None,
             };
 
-            if entry.name.is_empty() || entry.name == "." || entry.name.ends_with('/') {
+            if entry.name.is_empty() || entry.name == "." {
                 continue;
             }
             return Some(entry);
@@ -126,13 +126,22 @@ impl Cursor {
         self.offset = align4(data_end);
         let index = self.index;
         self.index += 1;
+        let file_type = cpio_file_type(mode);
+        let data = if file_type == FileType::Symlink {
+            trim_nul(&self.bytes[data_start..data_end])
+        } else {
+            &self.bytes[data_start..data_end]
+        };
         Some(ArchiveEntry {
             index,
-            name: bytes_to_static_str(normalize_entry_name(name_bytes))?,
-            file_type: cpio_file_type(mode),
+            name: bytes_to_static_str(normalize_entry_name(
+                name_bytes,
+                file_type == FileType::Directory,
+            ))?,
+            file_type,
             mode: (mode & 0o7777) as u16,
-            size: file_size,
-            data: &self.bytes[data_start..data_end],
+            size: data.len(),
+            data,
         })
     }
 
@@ -152,17 +161,27 @@ impl Cursor {
                 return None;
             }
             self.offset = align512(data_end);
+            if typeflag == b'x' || typeflag == b'g' {
+                continue;
+            }
 
-            let name = tar_name(header)?;
+            let file_type = tar_file_type(typeflag);
+            let name = tar_name(header, file_type == FileType::Directory)?;
+            let linkname = trim_nul(&header[157..257]);
+            let data = if file_type == FileType::Symlink {
+                linkname
+            } else {
+                &self.bytes[data_start..data_end]
+            };
             let index = self.index;
             self.index += 1;
             return Some(ArchiveEntry {
                 index,
                 name,
-                file_type: tar_file_type(typeflag),
+                file_type,
                 mode: parse_tar_octal(&header[100..108]).unwrap_or(0) as u16,
-                size,
-                data: &self.bytes[data_start..data_end],
+                size: data.len(),
+                data,
             });
         }
         None
@@ -187,18 +206,23 @@ fn tar_file_type(typeflag: u8) -> FileType {
     }
 }
 
-fn tar_name(header: &'static [u8]) -> Option<&'static str> {
+fn tar_name(header: &'static [u8], directory: bool) -> Option<&'static str> {
     let name = trim_nul(&header[..100]);
     let prefix = trim_nul(&header[345..500]);
     if prefix.is_empty() {
-        return bytes_to_static_str(normalize_entry_name(name));
+        return bytes_to_static_str(normalize_entry_name(name, directory));
     }
-    bytes_to_static_str(normalize_entry_name(name))
+    bytes_to_static_str(normalize_entry_name(name, directory))
 }
 
-fn normalize_entry_name(path: &[u8]) -> &[u8] {
+fn normalize_entry_name(path: &[u8], directory: bool) -> &[u8] {
     let path = strip_prefix(path, b"/");
-    strip_prefix(path, b"./")
+    let path = strip_prefix(path, b"./");
+    if directory && path.ends_with(b"/") {
+        &path[..path.len() - 1]
+    } else {
+        path
+    }
 }
 
 fn strip_prefix<'a>(bytes: &'a [u8], prefix: &[u8]) -> &'a [u8] {

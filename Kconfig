@@ -37,6 +37,39 @@ config USER
 	default y
 	depends on MMU
 
+config BUSYBOX_SMOKE
+	bool "Run /bin/busybox --help as user smoke test"
+	default n
+	depends on USER
+
+endmenu
+
+menu "Networking"
+
+config NET
+	bool "Networking stack"
+	default y
+
+config IPV4
+	bool "IPv4"
+	default y
+	depends on NET
+
+config NET_ARP
+	bool "ARP"
+	default y
+	depends on IPV4
+
+config NET_ICMP
+	bool "ICMP echo"
+	default y
+	depends on IPV4
+
+config NET_UDP
+	bool "UDP"
+	default y
+	depends on IPV4
+
 endmenu
 
 menu "Boot"
@@ -67,8 +100,19 @@ config VIRTIO_BLK
 
 config QEMU_VIRTIO_BLK_PATH
 	string "QEMU virtio-blk backend"
-	default "fat:rw:."
+	default "/home/tang/rust/rootfs.ext4"
 	depends on VIRTIO_BLK
+
+config VIRTIO_NET
+	bool "Attach QEMU virtio-net device"
+	default n
+	depends on VIRTIO_MMIO
+	depends on NET
+
+config QEMU_NETDEV
+	string "QEMU netdev backend"
+	default "user,id=net0"
+	depends on VIRTIO_NET
 
 endmenu
 
@@ -97,5 +141,11 @@ config INITRD_LOAD_ADDR
 	hex "External initrd loader physical address"
 	default 0x46000000
 	depends on INITRD_EXTERNAL
+
+config EXT4_ROOTFS
+	bool "Mount ext4 root filesystem from virtio-blk"
+	default y
+	depends on FS
+	depends on VIRTIO_BLK
 
 endmenu

@@ -1,12 +1,16 @@
 pub mod address;
 pub mod console;
+pub mod ipc;
 pub mod loader;
 pub mod log;
 pub mod memory;
+pub mod net;
 pub mod process;
 pub mod queue;
 pub mod scheduler;
+pub mod slab;
 pub mod sleep;
+pub mod sync;
 pub mod syscall;
 pub mod task;
 pub mod user;

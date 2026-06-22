@@ -3,7 +3,7 @@ use crate::kernel::memory::{self, PAGE_SIZE};
 use crate::kernel::process::{ProcessId, ThreadId, ThreadMode};
 
 pub const MAX_TASKS: usize = 8;
-const TASK_STACK_SIZE: usize = 16 * 1024;
+const TASK_STACK_SIZE: usize = 64 * 1024;
 const TASK_STACK_PAGES: usize = TASK_STACK_SIZE / PAGE_SIZE;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -102,6 +102,7 @@ pub struct TaskControlBlock {
     pub user_stack_bottom: usize,
     pub user_stack_top: usize,
     pub user_entry: usize,
+    pub user_tls: u32,
     pub stats: TaskStats,
 }
 
@@ -131,6 +132,7 @@ impl TaskControlBlock {
             user_stack_bottom: 0,
             user_stack_top: 0,
             user_entry: 0,
+            user_tls: 0,
             stats: TaskStats::new(),
         }
     }
@@ -173,6 +175,7 @@ impl TaskControlBlock {
                 user_stack_bottom: 0,
                 user_stack_top: 0,
                 user_entry: 0,
+                user_tls: 0,
                 stats: TaskStats::new(),
             }
         }
@@ -189,6 +192,7 @@ impl TaskControlBlock {
         user_stack_pages: usize,
         user_stack_bottom: usize,
         user_stack_top: usize,
+        initial_sp: usize,
         priority: u8,
         time_slice_ticks: u32,
     ) -> Self {
@@ -196,7 +200,7 @@ impl TaskControlBlock {
             let kernel_stack = alloc_stack();
 
             let context =
-                TaskContext::new_user(kernel_stack, TASK_STACK_SIZE, user_entry, user_stack_top);
+                TaskContext::new_user(kernel_stack, TASK_STACK_SIZE, user_entry, initial_sp);
             let time_slice_ticks = time_slice_ticks.max(1);
 
             Self {
@@ -223,6 +227,7 @@ impl TaskControlBlock {
                 user_stack_bottom,
                 user_stack_top,
                 user_entry,
+                user_tls: 0,
                 stats: TaskStats::new(),
             }
         }
@@ -271,12 +276,28 @@ impl TaskControlBlock {
         self.stats.block_count = self.stats.block_count.wrapping_add(1);
     }
 
-    pub fn mark_waiting_for_child(&mut self, channel: u32, pid: usize) {
+    pub fn mark_waiting_for_poll(&mut self, channel: u32, pollfds: usize, nfds: usize) {
+        self.state = TaskState::Blocked;
+        self.wait_channel = channel;
+        self.wait_pid = usize::MAX;
+        self.wait_user_buf = pollfds;
+        self.wait_len = nfds;
+        self.remaining_ticks = 0;
+        self.stats.block_count = self.stats.block_count.wrapping_add(1);
+    }
+
+    pub fn mark_waiting_for_child(
+        &mut self,
+        channel: u32,
+        pid: usize,
+        status_ptr: usize,
+        rusage_ptr: usize,
+    ) {
         self.state = TaskState::Blocked;
         self.wait_channel = channel;
         self.wait_pid = pid;
-        self.wait_user_buf = 0;
-        self.wait_len = 0;
+        self.wait_user_buf = status_ptr;
+        self.wait_len = rusage_ptr;
         self.remaining_ticks = 0;
         self.stats.block_count = self.stats.block_count.wrapping_add(1);
     }

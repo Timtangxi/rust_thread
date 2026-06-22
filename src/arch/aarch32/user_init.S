@@ -11,8 +11,11 @@
 .equ SYS_CLOSE, 8
 .equ O_CREAT, 0x40
 .equ O_TRUNC, 0x200
+.equ KERNEL_ABI_MAGIC, 0x80000000
 
 __user_init_entry:
+    ldr r7, =KERNEL_ABI_MAGIC
+
     mov r0, #SYS_WRITE
     mov r1, #1
     ldr r2, =__user_init_msg

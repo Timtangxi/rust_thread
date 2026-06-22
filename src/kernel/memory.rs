@@ -130,14 +130,42 @@ pub fn alloc_pages(pages: usize) -> Option<*mut u8> {
 
         let block_pages = 1usize << order;
         mark_pages(pfn, block_pages, PageState::Used, order, 1);
-        ALLOCATED_PAGES += block_pages;
-        FREE_PAGES -= block_pages;
+        ALLOCATED_PAGES = ALLOCATED_PAGES.saturating_add(block_pages);
+        FREE_PAGES = FREE_PAGES.saturating_sub(block_pages);
 
         let ptr = pfn_to_addr(pfn) as *mut u8;
         HIGH_WATER = HIGH_WATER.max(ptr as usize + block_pages * PAGE_SIZE);
         write_bytes(ptr, 0, block_pages * PAGE_SIZE);
         Some(ptr)
     }
+}
+
+#[cfg_attr(not(feature = "mmu"), allow(dead_code))]
+pub fn alloc_exact_pages(pages: usize) -> Option<*mut u8> {
+    if pages == 0 {
+        return None;
+    }
+    let order = order_for_pages(pages)?;
+    let block_pages = 1usize << order;
+    let ptr = alloc_pages(block_pages)?;
+    if block_pages > pages {
+        unsafe {
+            let first_tail = addr_to_pfn(ptr as usize)? + pages;
+            for offset in 0..(block_pages - pages) {
+                PAGE_FRAMES[first_tail + offset] = PageFrame {
+                    state: PageState::Free,
+                    order: 0,
+                    ref_count: 0,
+                    flags: 0,
+                    next: NO_PAGE,
+                    prev: NO_PAGE,
+                };
+            }
+            ALLOCATED_PAGES = ALLOCATED_PAGES.saturating_sub(block_pages - pages);
+            rebuild_free_areas();
+        }
+    }
+    Some(ptr)
 }
 
 pub unsafe fn free_pages(ptr: *mut u8, pages: usize) {
@@ -188,6 +216,39 @@ pub unsafe fn free_pages(ptr: *mut u8, pages: usize) {
     }
 }
 
+#[cfg_attr(not(feature = "mmu"), allow(dead_code))]
+pub unsafe fn free_exact_pages(ptr: *mut u8, pages: usize) {
+    if ptr.is_null() || pages == 0 {
+        return;
+    }
+
+    let start = ptr as usize;
+    if start & (PAGE_SIZE - 1) != 0 {
+        panic!("free_exact_pages: unaligned page");
+    }
+    if !range_in_ram(start, pages) {
+        panic!("free_exact_pages: range outside RAM");
+    }
+
+    let pfn = addr_to_pfn(start).unwrap_or_else(|| panic!("free_exact_pages: bad address"));
+    unsafe {
+        assert_range_state(pfn, pages, PageState::Used);
+        write_bytes(ptr, 0, pages * PAGE_SIZE);
+        for offset in 0..pages {
+            PAGE_FRAMES[pfn + offset] = PageFrame {
+                state: PageState::Free,
+                order: 0,
+                ref_count: 0,
+                flags: 0,
+                next: NO_PAGE,
+                prev: NO_PAGE,
+            };
+        }
+        ALLOCATED_PAGES = ALLOCATED_PAGES.saturating_sub(pages);
+        rebuild_free_areas();
+    }
+}
+
 pub unsafe fn reserve_range(start: usize, size: usize) {
     if size == 0 {
         return;
@@ -215,7 +276,6 @@ pub unsafe fn reserve_range(start: usize, size: usize) {
                 PageState::Free => {
                     PAGE_FRAMES[pfn] = PageFrame::reserved();
                     RESERVED_PAGES += 1;
-                    FREE_PAGES = FREE_PAGES.saturating_sub(1);
                 }
             }
         }
@@ -232,7 +292,7 @@ pub fn allocated_pages() -> usize {
 }
 
 pub fn free_page_count() -> usize {
-    unsafe { FREE_PAGES }
+    free_page_count_from_areas()
 }
 
 pub fn reserved_pages() -> usize {
@@ -247,6 +307,14 @@ pub fn free_ranges() -> usize {
     let mut total = 0;
     for order in 0..MAX_ORDER {
         total += unsafe { FREE_AREAS[order].count };
+    }
+    total
+}
+
+fn free_page_count_from_areas() -> usize {
+    let mut total = 0usize;
+    for order in 0..MAX_ORDER {
+        total = total.saturating_add(unsafe { FREE_AREAS[order].count } << order);
     }
     total
 }
@@ -373,6 +441,7 @@ unsafe fn remove_block(pfn: usize, order: usize) {
 unsafe fn rebuild_free_areas() {
     unsafe {
         FREE_AREAS = [const { FreeArea::empty() }; MAX_ORDER];
+        FREE_PAGES = 0;
     }
 
     let mut pfn = 0usize;
@@ -405,6 +474,7 @@ unsafe fn add_free_range_rebuild(mut start_pfn: usize, mut pages: usize) {
         }
         unsafe {
             insert_block(start_pfn, order);
+            FREE_PAGES += 1usize << order;
         }
         start_pfn += 1usize << order;
         pages -= 1usize << order;

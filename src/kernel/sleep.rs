@@ -53,6 +53,24 @@ impl SleepQueue {
         Some(task)
     }
 
+    pub fn remove_task(&mut self, task: TaskId) {
+        let mut idx = 0;
+        while idx < self.len {
+            if self.entries[idx]
+                .map(|entry| entry.task == task)
+                .unwrap_or(false)
+            {
+                for next in idx + 1..self.len {
+                    self.entries[next - 1] = self.entries[next];
+                }
+                self.len -= 1;
+                self.entries[self.len] = None;
+                continue;
+            }
+            idx += 1;
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.len
     }

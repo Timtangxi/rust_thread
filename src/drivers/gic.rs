@@ -2,6 +2,7 @@ use core::ptr::{read_volatile, write_volatile};
 
 use aarch32_cpu::asm;
 
+use crate::drivers::device::{self, DeviceClass, DeviceId, DeviceNode, DeviceState};
 use crate::platform::{fdt, qemu_virt};
 
 static mut GICD_BASE: usize = qemu_virt::GICD_BASE;
@@ -38,6 +39,35 @@ pub fn init() {
         asm::dsb();
         asm::isb();
     }
+}
+
+pub fn enable_device_irq(irq: u32) {
+    if irq == 0 || irq == SPURIOUS_IRQ {
+        return;
+    }
+    unsafe {
+        enable_irq(irq);
+    }
+}
+
+pub fn register_device() -> Option<DeviceId> {
+    let device_info = fdt::gic();
+    let id = device::register(DeviceNode {
+        id: DeviceId::new(usize::MAX),
+        name: "gic-v2",
+        driver: "arm-gic-v2",
+        class: DeviceClass::InterruptController,
+        state: DeviceState::Bound,
+        mmio_base: device_info.distributor.start,
+        mmio_size: device_info.distributor.size + device_info.cpu_interface.size,
+        irq: 0,
+        major: 0,
+        minor: 0,
+        wait_channel: 0,
+    })
+    .ok()?;
+    let _ = device::mark_ready(id);
+    Some(id)
 }
 
 pub fn distributor_base() -> usize {

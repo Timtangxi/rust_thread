@@ -65,8 +65,6 @@ pub unsafe fn copy_to_user(dst: UserPtr, src: &[u8]) -> Result<(), u32> {
 
 pub fn copy_cstr_from_user(dst: &mut [u8], src: UserPtr, max_len: usize) -> Result<usize, u32> {
     let max_len = max_len.min(dst.len());
-    src.check(max_len, UserAccess::Read)?;
-
     let mut copied = 0usize;
     while copied < max_len {
         let mut byte = [0u8; 1];

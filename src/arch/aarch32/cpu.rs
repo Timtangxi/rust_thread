@@ -51,23 +51,44 @@ pub fn with_irq_disabled<F, T>(f: F) -> T
 where
     F: FnOnce() -> T,
 {
-    let was_unmasked = irq_unmasked();
-    asm::irq_disable();
+    let guard = IrqGuard::new();
     let result = f();
-    if was_unmasked {
-        unsafe {
-            asm::irq_enable();
-        }
-    }
+    drop(guard);
     result
 }
 
-fn irq_unmasked() -> bool {
+pub fn irq_unmasked() -> bool {
     let cpsr: u32;
     unsafe {
         core::arch::asm!("mrs {0}, cpsr", out(reg) cpsr, options(nomem, nostack, preserves_flags));
     }
     cpsr & (1 << 7) == 0
+}
+
+pub struct IrqGuard {
+    was_unmasked: bool,
+}
+
+impl IrqGuard {
+    pub fn new() -> Self {
+        let was_unmasked = irq_unmasked();
+        asm::irq_disable();
+        Self { was_unmasked }
+    }
+
+    pub const fn was_unmasked(&self) -> bool {
+        self.was_unmasked
+    }
+}
+
+impl Drop for IrqGuard {
+    fn drop(&mut self) {
+        if self.was_unmasked {
+            unsafe {
+                asm::irq_enable();
+            }
+        }
+    }
 }
 
 pub fn cpsr() -> u32 {
@@ -108,6 +129,46 @@ pub fn ifar() -> u32 {
         core::arch::asm!("mrc p15, 0, {0}, c6, c0, 2", out(reg) value, options(nomem, nostack, preserves_flags));
     }
     value
+}
+
+pub fn set_user_tls(value: u32) {
+    unsafe {
+        core::arch::asm!(
+            "mcr p15, 0, {0}, c13, c0, 3",
+            in(reg) value,
+            options(nostack, preserves_flags)
+        );
+        asm::isb();
+    }
+}
+
+pub fn enable_vfp() {
+    unsafe {
+        let mut value: u32;
+        core::arch::asm!(
+            "mrc p15, 0, {value}, c1, c0, 2",
+            value = out(reg) value,
+            options(nomem, nostack, preserves_flags)
+        );
+        value |= 0x00f0_0000;
+        core::arch::asm!(
+            "mcr p15, 0, {value}, c1, c0, 2",
+            value = in(reg) value,
+            options(nostack, preserves_flags)
+        );
+        asm::isb();
+        core::arch::asm!(
+            "vmrs {value}, fpexc",
+            value = out(reg) value,
+            options(nostack, preserves_flags)
+        );
+        value |= 1 << 30;
+        core::arch::asm!(
+            "vmsr fpexc, {value}",
+            value = in(reg) value,
+            options(nostack, preserves_flags)
+        );
+    }
 }
 
 #[derive(Clone, Copy)]

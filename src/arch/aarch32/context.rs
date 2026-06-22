@@ -16,6 +16,7 @@ pub struct TaskContext {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct TrapFrame {
     pub user_sp: u32,
     pub user_lr: u32,
@@ -44,6 +45,54 @@ impl TrapFrame {
 
     pub fn syscall_arg2(&self) -> u32 {
         self.r[3]
+    }
+
+    pub fn syscall_arg3(&self) -> u32 {
+        self.r[4]
+    }
+
+    pub fn syscall_arg4(&self) -> u32 {
+        self.r[5]
+    }
+
+    pub fn syscall_arg5(&self) -> u32 {
+        self.r[12]
+    }
+
+    pub fn kernel_abi_magic(&self) -> u32 {
+        self.r[7]
+    }
+
+    pub fn linux_syscall_number(&self) -> u32 {
+        self.r[7]
+    }
+
+    pub fn linux_arg0(&self) -> u32 {
+        self.r[0]
+    }
+
+    pub fn linux_arg1(&self) -> u32 {
+        self.r[1]
+    }
+
+    pub fn linux_arg2(&self) -> u32 {
+        self.r[2]
+    }
+
+    pub fn linux_arg3(&self) -> u32 {
+        self.r[3]
+    }
+
+    pub fn linux_arg4(&self) -> u32 {
+        self.r[4]
+    }
+
+    pub fn linux_arg5(&self) -> u32 {
+        self.r[5]
+    }
+
+    pub fn linux_arg6(&self) -> u32 {
+        self.r[6]
     }
 
     pub fn set_return_value(&mut self, value: u32) {
@@ -83,7 +132,7 @@ impl TaskContext {
         kernel_stack: *mut u8,
         kernel_stack_len: usize,
         user_entry: usize,
-        user_stack_top: usize,
+        initial_sp: usize,
     ) -> Self {
         let stack_top = unsafe { kernel_stack.add(kernel_stack_len) } as usize;
         let aligned_top = stack_top & !0xf;
@@ -96,7 +145,7 @@ impl TaskContext {
             }
 
             let trap = &mut *(frame as *mut TrapFrame);
-            trap.user_sp = (user_stack_top & !0xf) as u32;
+            trap.user_sp = initial_sp as u32;
             trap.user_lr = 0;
             trap.lr = 0;
             trap.pc = user_entry as u32;

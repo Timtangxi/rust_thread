@@ -1,5 +1,6 @@
 /target/
 /build/
+/userspace/build/
 /.config
 /include/generated/
 

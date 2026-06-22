@@ -5,6 +5,9 @@
 
 .equ MODE_SVC, 0x13
 .equ MODE_IRQ, 0x12
+.equ MODE_FIQ, 0x11
+.equ MODE_ABT, 0x17
+.equ MODE_UND, 0x1b
 .equ MODE_SYS, 0x1f
 .equ I_BIT, 0x80
 .equ F_BIT, 0x40
@@ -16,6 +19,15 @@ _start:
 
     cps #MODE_IRQ
     ldr sp, =__irq_stack_top
+
+    cps #MODE_FIQ
+    ldr sp, =__fiq_stack_top
+
+    cps #MODE_ABT
+    ldr sp, =__abort_stack_top
+
+    cps #MODE_UND
+    ldr sp, =__undefined_stack_top
 
     cps #MODE_SVC
     ldr sp, =__kernel_stack_top

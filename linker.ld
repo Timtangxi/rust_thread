@@ -47,13 +47,28 @@ SECTIONS
 
   . = ALIGN(16);
   __kernel_stack_bottom = .;
-  . += 64K;
+  . += 256K;
   __kernel_stack_top = .;
 
   . = ALIGN(16);
   __irq_stack_bottom = .;
-  . += 16K;
+  . += 64K;
   __irq_stack_top = .;
+
+  . = ALIGN(16);
+  __fiq_stack_bottom = .;
+  . += 16K;
+  __fiq_stack_top = .;
+
+  . = ALIGN(16);
+  __abort_stack_bottom = .;
+  . += 64K;
+  __abort_stack_top = .;
+
+  . = ALIGN(16);
+  __undefined_stack_bottom = .;
+  . += 64K;
+  __undefined_stack_top = .;
 
   . = ALIGN(4K);
   __kernel_end = .;

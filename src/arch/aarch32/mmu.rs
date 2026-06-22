@@ -91,6 +91,7 @@ pub struct MmuInfo {
 
 #[derive(Clone, Copy)]
 pub enum UserMapping {
+    NoAccess,
     Rx,
     RoData,
     RwData,
@@ -179,6 +180,19 @@ impl PageAttrs {
             bits: SMALL_PAGE_DESC
                 | SMALL_PAGE_XN
                 | ap_bits(AP_USER_RW)
+                | (0b001 << SMALL_PAGE_TEX_SHIFT)
+                | SMALL_PAGE_C
+                | SMALL_PAGE_B
+                | SMALL_PAGE_SHAREABLE
+                | SMALL_PAGE_NG,
+        }
+    }
+
+    const fn user_none_xn() -> Self {
+        Self {
+            bits: SMALL_PAGE_DESC
+                | SMALL_PAGE_XN
+                | ap_bits(AP_PRIV_RW)
                 | (0b001 << SMALL_PAGE_TEX_SHIFT)
                 | SMALL_PAGE_C
                 | SMALL_PAGE_B
@@ -454,6 +468,45 @@ pub unsafe fn unmap_pages_in(table_base: usize, virt_start: usize, pages: usize)
     finish_page_table_update();
 }
 
+pub unsafe fn protect_user_pages_in(
+    table_base: usize,
+    virt_start: usize,
+    pages: usize,
+    mapping: UserMapping,
+) -> Result<(), u32> {
+    if pages == 0 {
+        return Ok(());
+    }
+
+    if virt_start & PAGE_MASK != 0 {
+        return Err(crate::kernel::syscall::EINVAL);
+    }
+
+    let attrs = user_attrs(mapping).bits;
+    let mut virt = virt_start;
+    for _ in 0..pages {
+        let l1_index = virt >> 20;
+        let l2_index = (virt >> 12) & 0xff;
+        let l1 = table_base as *mut u32;
+        let l1_entry = unsafe { l1.add(l1_index).read_volatile() };
+        if l1_entry & 0b11 != L1_DESC_PAGE_TABLE {
+            return Err(crate::kernel::syscall::EFAULT);
+        }
+        let l2 = (l1_entry as usize & 0xffff_fc00) as *mut u32;
+        let old = unsafe { l2.add(l2_index).read_volatile() };
+        if old & SMALL_PAGE_DESC != SMALL_PAGE_DESC {
+            return Err(crate::kernel::syscall::EFAULT);
+        }
+        let phys = old & SMALL_PAGE_BASE_MASK;
+        unsafe {
+            l2.add(l2_index).write_volatile(phys | attrs);
+        }
+        virt += PAGE_SIZE;
+    }
+    finish_page_table_update();
+    Ok(())
+}
+
 pub unsafe fn create_user_table() -> Option<usize> {
     let ptr = memory::alloc_pages(L1_TABLE_PAGES)?;
     let root = ptr as *mut u32;
@@ -568,6 +621,7 @@ fn page_entry_in(table_base: usize, virt: usize) -> Option<u32> {
 
 fn user_attrs(mapping: UserMapping) -> PageAttrs {
     match mapping {
+        UserMapping::NoAccess => PageAttrs::user_none_xn(),
         UserMapping::Rx => PageAttrs::user_rx(),
         UserMapping::RoData => PageAttrs::user_ro_xn(),
         UserMapping::RwData | UserMapping::Stack => PageAttrs::user_rw_xn(),

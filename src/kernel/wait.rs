@@ -28,6 +28,12 @@ impl WaitQueueTable {
         }
         count
     }
+
+    pub fn remove_task(&mut self, task: TaskId) {
+        for queue in &mut self.queues {
+            queue.remove_task(task);
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -67,6 +73,21 @@ impl WaitQueue {
             idx += 1;
         }
         None
+    }
+
+    pub fn remove_task(&mut self, task: TaskId) {
+        let mut idx = 0;
+        while idx < self.len {
+            if self.items[idx]
+                .map(|entry| entry.task == task)
+                .unwrap_or(false)
+            {
+                self.len -= 1;
+                self.items[idx] = self.items[self.len].take();
+                continue;
+            }
+            idx += 1;
+        }
     }
 }
 

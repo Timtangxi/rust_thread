@@ -31,9 +31,10 @@ Rust 裸机 AArch32/ARMv7-A 内核，当前目标平台是 QEMU `virt` + `cortex
 - 内存：buddy page allocator、物理页元数据、地址类型封装
 - MMU：4 KiB small page、用户/内核权限、device memory MMIO、ASID 切换骨架
 - 用户态：ELF32 ARM loader、独立用户地址空间、用户栈、SVC syscall
-- syscall：`yield`、`sleep`、`block`、`wake`、`exit`、`write`、`read`、`open`、`close`、`wait`、`spawn`、`exec`
+- syscall：`yield`、`sleep`、`block`、`wake`、`exit`、`read/write`、`readv/writev`、`open/close`、`wait/spawn/exec`、`brk/mmap/munmap/mprotect`、`fcntl/ioctl/stat/fstat/newfstatat/access`、`getpid/getppid/uname/time`
 - 文件系统：VFS、只读内嵌 initrd、可写 ramfs、外部 cpio/tar initramfs 解包
-- 驱动：UART、GIC、timer、VirtIO MMIO transport probe、virtio-blk probe 骨架
+- 驱动：UART、GIC、timer、VirtIO MMIO transport probe、virtio-blk probe 骨架、virtio-net 绑定骨架
+- 网络：net interface 表、Ethernet/ARP/IPv4/ICMP/UDP 解析、ARP/ICMP 回复生成、接口统计和 TX/RX 队列
 - 配置：Linux 风格 `Kconfig` / `.config` / `menuconfig`
 
 ## 文件系统兼容策略
@@ -149,6 +150,10 @@ Makefile 只保留统一入口，不再用 `run-dtb`、`run-virtio`、`run-no-mm
 - `CONFIG_QEMU_FDT_LOADER`：由 QEMU 生成 DTB，并通过 loader 放入 RAM。
 - `CONFIG_VIRTIO_MMIO`：枚举 VirtIO MMIO transport。
 - `CONFIG_VIRTIO_BLK`：给 QEMU 挂载 virtio-blk 设备。
+- `CONFIG_NET`：启用内核网络栈。
+- `CONFIG_IPV4`、`CONFIG_NET_ARP`、`CONFIG_NET_ICMP`、`CONFIG_NET_UDP`：启用基础 IPv4 协议模块。
+- `CONFIG_VIRTIO_NET`：给 QEMU 挂载 virtio-net 设备。
+- `CONFIG_QEMU_NETDEV`：QEMU netdev 后端，例如 `user,id=net0`。
 - `CONFIG_FS`：启用 VFS。
 - `CONFIG_INITRD`：启用内嵌 initrd。
 - `CONFIG_INITRD_EXTERNAL`：启用外部 rootfs。
@@ -198,6 +203,24 @@ user$
 
 如果使用 tar rootfs，格式会显示为 `tar-ustar`。当前 rootfs 中的 busybox 可作为文件系统兼容测试样本读取，但不能作为 Linux 动态 PIE 直接执行。
 
+构建本内核 ABI 用户程序：
+
+```bash
+make userspace
+make userspace-rootfs
+```
+
+产物位于 `userspace/build/`，包括 `/bin/init`、`shell`、`ls`、`cat`、`echo` 的 ELF32 ARM 静态用户程序，以及 `userspace/build/rootfs.tar`。如需用它作为外部 rootfs，可在 `make menuconfig` 中把 `CONFIG_INITRD_EXTERNAL_PATH` 改为 `userspace/build/rootfs.tar`。
+
+启用 virtio-net：
+
+```bash
+make defconfig DEFCONFIG=configs/qemu_virt_net_defconfig
+make run
+```
+
+当前网络设备绑定后会在详细启动日志中显示 `eth0`、MAC、IPv4、RX/TX 队列和统计。virtio-net vring DMA 收发还未完成，因此这一步用于验证 netdev 注册和协议栈入口，不等价于已经能从宿主 `ping` 通。
+
 ## 源码边界
 
 关键目录：
@@ -220,58 +243,201 @@ configs/              defconfig
 4. `kernel/` 保存调度、进程、syscall、同步、日志等通用内核机制。
 5. `fs/` 只处理文件对象、路径、挂载和具体文件系统，不直接依赖 QEMU 地址。
 
-## 近期路线
+## 分层路线图
 
-优先完成这些会显著提升内核完整性：
+后续按 L0-L8 推进。每层都要有可验证结果，避免只堆接口不闭环。当前代码已经覆盖 L0、L1，并部分进入 L2、L3、L4、L5；下一步应优先把 L2/L3 的生命周期语义补完整，再继续扩展 VFS 和驱动。
 
-1. 用户异常处理：User mode data/prefetch abort 杀死当前进程，Kernel mode fault 才 panic。
-2. fault-safe user copy：实现 exception table/fixup，坏用户指针返回 `-EFAULT`。
-3. 用户程序构建链：把 `/bin/init` 从内嵌 byte array 改为独立用户 ELF 产物。
-4. ELF loader：补 argv/envp/auxv、BSS 跨页校验、段权限、interpreter 识别。
-5. fd 生命周期：引用计数 `File`、dup、close-on-exec、共享 offset、flags。
-6. VFS：dentry cache、mount table、path resolver、`getdents/stat/lseek/mkdir/unlink/rename/symlink`。
-7. virtio-blk：vring、DMA buffer、request/complete path、IRQ 唤醒等待任务。
-8. block layer：统一块请求、buffer cache、page cache。
-9. ext2 或 FAT32：先只读，再可写。
-10. QEMU smoke test：自动等待串口关键文本并失败退出。
+### L0：Boot
 
-## 长线系统设计
+目标：
 
-### 执行模型
+1. QEMU/Bootloader 能稳定进入 `_start`。
+2. 建立 SVC/IRQ/Abort/Undefined/FIQ 栈。
+3. 清零 `.bss`，保存 boot 参数、DTB 地址和 early initrd 范围。
+4. 初始化 UART early console，panic 任意阶段都能输出。
+5. 安装异常向量，区分 reset、undefined、svc、prefetch abort、data abort、irq、fiq。
+6. 初始化 GIC、Generic Timer 和最小 IRQ 分发。
+7. 建立 early page allocator、buddy allocator 和早期页表。
+8. 打开 MMU/I-cache，保留 identity bootstrap 映射。
 
-1. bootstrap 阶段关闭 IRQ，完成栈、`.bss`、串口、异常向量、页分配器、页表、GIC、timer 初始化。
-2. 创建 idle、init、reaper、必要内核线程。
-3. 打开 IRQ，进入统一调度路径。
-4. 用户任务运行在 User mode，通过 SVC 进入内核。
-5. IRQ handler 只做短路径处理：确认设备、搬运少量状态、唤醒 wait queue。
-6. 耗时工作放到内核线程或 bottom half。
-7. panic 路径避免普通锁，只做最小诊断输出。
-
-### 进程模型
-
-目标接近早期 Linux 的拆分：
+结果：
 
 ```text
-task_struct  -> 调度实体、上下文、kernel stack、状态、统计
-mm_struct    -> 页表、ASID、用户段、用户栈、VMA/region
-files_struct -> fd table、File 引用、close-on-exec 位图
-file         -> offset、flags、mode、inode/dentry 引用
-inode        -> 文件元数据和后端操作
-dentry       -> 路径名缓存和父子关系
+Hello Kernel
 ```
 
-推荐演进顺序：
+核心模块：
 
-1. 维持一个进程一个线程，先把 `mm/files` 生命周期做准。
-2. 实现 `spawn/exec/wait/exit` 的完整资源规则。
-3. 增加 `fork()` 的完整地址空间复制。
-4. 把 `fork()` 升级为 COW。
-5. 引入线程组，共享 `mm/files` 引用计数。
-6. 后续再考虑 signal、process group、session、credential。
+1. `arch/aarch32/boot.S`：CPU 模式切换、栈设置、`.bss` 清零、跳入 Rust。
+2. `arch/aarch32/exception/`：异常入口和 fault 诊断。
+3. `arch/aarch32/mmu.rs`：bootstrap 页表、TLB/cache/barrier。
+4. `platform/fdt.rs`：DTB 扫描、RAM/MMIO/设备发现。
+5. `kernel/memory.rs`：early reserve、buddy 初始化。
+6. `drivers/uart.rs`、`drivers/gic.rs`、`drivers/timer.rs`：最小设备 bring-up。
 
-### 内存模型
+设计边界：
 
-长期虚拟地址规划：
+1. `boot.S` 只做 CPU 必需动作，不放调度、内存策略和设备策略。
+2. `kernel_main` 之前只允许 early console、early reserve、固定栈。
+3. DTB、initrd、kernel image、页表、栈必须在 buddy 初始化前标记 reserved。
+4. MMIO 必须用 device memory + XN 映射，普通 RAM 用 normal memory。
+5. panic/fault 路径不依赖 heap、调度器或普通锁。
+
+验收标准：
+
+1. `make run` 稳定打印内核 banner、RAM/MMIO、timer 频率。
+2. 未打开调度器前触发 panic 仍能输出异常类型和关键寄存器。
+3. 打开 MMU 后 UART、GIC、timer 继续工作。
+4. `make readelf` 显示入口地址和 linker 段布局符合预期。
+5. no-MMU 配置仍能作为 bring-up fallback。
+
+当前状态：
+
+1. QEMU `virt` 可直接通过 `-kernel` 启动 AArch32 ELF。
+2. 已初始化 PL011、GICv2、Generic Timer、异常向量。
+3. 已启用 ARMv7-A short-descriptor MMU 和 4 KiB 页表。
+4. 已有 buddy page allocator、panic/fault 诊断、串口输出。
+5. FDT loader、外部 initrd loader、QEMU virt fallback 已接入配置系统。
+
+下一步：
+
+1. 把 kernel 切到高地址运行，保留 identity bootstrap。
+2. 解析 FDT `reserved-memory`，让页分配器消费完整 memory map。
+3. 把 linker symbols 明确拆成 `.text/.rodata/.data/.bss/.init` 权限域。
+4. 增加 boot smoke test，匹配 banner、MMU、timer、panic 基础输出。
+
+### L1：Kernel Core
+
+目标：
+
+1. 建立 `TaskControlBlock`、任务状态、任务统计和内核栈。
+2. 实现抢占式 scheduler、ready queue、时间片和上下文切换。
+3. Timer IRQ 能进入统一调度路径。
+4. SVC `yield()` 和 timer tick 复用相同 reschedule 逻辑。
+5. 建立 `SleepQueue`、`WaitQueue`、`Wakeup` 和 reaper。
+6. 建立 `SpinLock<T>`、`Mutex`、`CondVar` 的内核同步基础。
+7. 明确 IRQ 上下文和线程上下文的锁规则。
+
+结果：
+
+```text
+Task A
+Task B
+Task C
+```
+
+核心结构：
+
+```text
+TaskControlBlock
+  pid/tid
+  name
+  state
+  priority/static_prio/dynamic_prio
+  time_slice/remaining_ticks
+  kernel_stack/user_stack
+  context/trap_frame_sp
+  wait_channel
+  stats
+
+RunQueue
+  ready queues by priority
+  current task
+  idle task
+
+WaitQueue
+  sleepers
+  blocked readers/writers
+  parent waiters
+```
+
+设计边界：
+
+1. 调度器不直接访问 UART、VirtIO 或文件系统；设备只能通过 wait queue 唤醒任务。
+2. IRQ handler 不睡眠，不获取可能阻塞的锁。
+3. `SpinLock<T>` 可用于 IRQ 上下文，`Mutex` 只能在线程上下文使用。
+4. `yield/sleep/block/exit` 必须走同一状态迁移函数，避免状态分叉。
+5. idle task 永远 runnable，保证 syscall/IRQ 后有可切换目标。
+
+验收标准：
+
+1. Timer IRQ 能打断 CPU-bound task，串口输出出现 A/B/C 交替。
+2. `yield()` 主动让出后当前任务回到 ready queue 尾部。
+3. `sleep(ticks)` 到期前不运行，到期后重新入队。
+4. `block(channel)` 后不被调度，`wake(channel)` 后恢复运行。
+5. `exit()` 后任务进入 `Zombie`，reaper 回收栈和 TCB。
+6. IRQ 中不直接大量打印调度日志。
+
+当前状态：
+
+1. 已有 TCB、优先级 ready queue、sleep queue、wait queue、reaper。
+2. IRQ/SVC 已保存 trap frame 并切换 kernel stack。
+3. 已支持 `yield/sleep/block/wake/exit`。
+4. 调度日志已延迟到任务上下文输出，IRQ 中避免大量串口打印。
+
+下一步：
+
+1. 引入 `SpinLock<T>` 和 `IrqSafeSpinLock<T>`。
+2. 实现 `Mutex`、`CondVar`、可中断/不可中断 wait queue。
+3. 把固定优先级调度升级为 MLFQ 或 Linux O(1) 风格 runqueue。
+4. 增加 scheduler trace 和 host-testable queue 单元测试。
+5. 为 panic 输出增加 runqueue 摘要、当前锁状态和最近调度事件。
+
+### L2：Memory
+
+目标：
+
+1. Buddy Allocator 管理物理页。
+2. Slab Allocator 管理小对象。
+3. Kernel Heap 支持 `alloc`，但保持 `no_std`。
+4. Page Table 提供统一 map/unmap/protect/query API。
+5. Address Space 对应早期 `mm_struct`。
+6. VMA/region 管理用户映射。
+7. Page fault 支持 lazy allocation 和用户异常处理。
+
+支持：
+
+1. `mmap`。
+2. 按需映射。
+3. 用户空间页表。
+4. 用户指针检查。
+5. Page fault 驱动的 lazy allocation。
+6. `brk`。
+7. COW 前置页引用计数。
+
+核心结构：
+
+```text
+PageFrame
+  state
+  order
+  refcount
+  flags
+
+BuddyAllocator
+  free_area[order]
+  split/merge
+  reserve/free
+
+SlabCache
+  object_size
+  partial/full/free slabs
+
+AddressSpace
+  pgd/L1 root
+  ASID
+  VMA list
+  owned pages
+  owned page tables
+
+VmArea
+  start/end
+  prot
+  flags
+  backing file/anon
+```
+
+地址空间规划：
 
 ```text
 0x00000000..0x7fffffff  用户空间
@@ -280,96 +446,324 @@ dentry       -> 路径名缓存和父子关系
 0xe0000000..0xffffffff  固定映射、向量、调试区
 ```
 
-路线：
+设计边界：
 
-1. 当前保留 identity mapping 作为稳定启动路径。
-2. 建立高地址内核链接和运行路径。
-3. 用户页只存在于低地址用户空间。
-4. 内核页对用户不可访问。
-5. MMIO 始终映射为 device memory。
-6. ASID 增加 generation 和回收策略。
-7. 完善 TLB/cache 维护后再打开 D-cache。
-8. 页分配器消费完整 FDT memory map 和 reserved-memory。
+1. 物理页分配器只处理页帧，不理解进程和文件。
+2. Slab 只从 buddy 申请页，不直接操作平台 memory map。
+3. AddressSpace 只持有页表和 VMA，不直接持有调度状态。
+4. 用户页必须只映射在用户地址范围，内核页不得带 user permission。
+5. `copy_from_user/copy_to_user` 先查权限，再执行 fault-safe 拷贝。
+6. MMIO 映射不进入普通 heap，不参与 COW，不允许用户态直接访问。
 
-### 驱动模型
+验收标准：
+
+1. buddy 分配/释放同 order 页后能正确合并。
+2. slab 能反复分配释放 TCB/File/Inode 等小对象，无页泄漏。
+3. 用户进程拥有独立页表，调度切换时 TTBR/ASID 正确切换。
+4. 用户写只读页触发 fault，内核不会 silent corrupt。
+5. 坏用户指针 syscall 返回 `-EFAULT`，不会导致 kernel fatal。
+6. `mmap/brk` 能创建 VMA，首次访问再分配物理页。
+
+当前状态：
+
+1. 已有 buddy allocator、页帧元数据、地址类型封装。
+2. 已有 L1/L2 页表、用户页权限、MMIO device mapping。
+3. 用户进程已有独立地址空间和 ASID 切换骨架。
+4. `copy_from_user/copy_to_user` 已做页表 preflight。
+
+下一步：
+
+1. 增加 slab allocator，服务 TCB、File、Inode、Dentry、VMA 等小对象。
+2. 建立 kernel heap allocator，替代固定容量数组。
+3. 引入 VMA/region 管理，为 `mmap/brk` 和 page fault 做准备。
+4. 实现 fault-safe user copy，坏用户指针返回 `-EFAULT`。
+5. 用户态 page fault 改成杀死当前进程或按 VMA 补页，内核态 fault 才 panic。
+6. 为 buddy/slab/VMA 增加 host 单元测试和泄漏统计。
+
+### L3：Process
 
 目标：
 
-1. FDT 负责设备发现，驱动负责 bind/probe。
-2. device manager 维护设备、driver、major/minor 或设备路径。
-3. IRQ handler 使用明确的 ACK/EOI 顺序和内存屏障。
-4. 阻塞 I/O 统一通过 wait queue。
-5. VirtIO 成为 QEMU 下主要设备族，优先 block，再 console/gpu/net。
+1. `fork()`。
+2. `exec()`。
+3. `exit()`。
+4. `wait()`。
+5. `clone()`。
 
-建议接口逐步收敛到：
+支持：
 
-```rust
-trait Driver {
-    fn name(&self) -> &'static str;
-    fn probe(&self, device: &PlatformDevice) -> Result<DeviceId, Error>;
-}
+1. Process。
+2. Thread。
+3. 父子关系。
+4. 退出码。
+5. 资源引用计数。
+6. 文件表继承。
+7. 地址空间复制和后续 COW。
+8. 用户异常转进程退出。
 
-trait IrqHandler {
-    fn handle_irq(&self, irq: u32);
-}
-
-trait BlockDevice {
-    fn submit(&self, request: BlockRequest) -> Result<(), Error>;
-}
-```
-
-早期可以继续用模块函数推进；设备数量增加后再固化 trait。
-
-### 文件系统和程序加载
-
-长期形态：
-
-1. initramfs/ramfs 保证无块设备时能启动和写入。
-2. virtio-blk 提供持久块设备。
-3. block layer 统一请求队列和完成路径。
-4. page cache 统一普通文件缓存。
-5. VFS 通过 `super_block/inode/dentry/file/mount` 抽象后端。
-6. ELF loader 从 VFS 读取文件，创建用户地址空间、用户栈、argv/envp/auxv。
-7. 本内核 ABI 用户程序先稳定，再扩展 Linux 静态程序兼容。
-
-Linux 兼容分级：
+核心结构：
 
 ```text
-L0  本内核 ABI 用户程序，支持基础 syscall 和 VFS
-L1  静态 ELF 用户程序，支持 argv/envp/auxv、brk、mmap 子集
-L2  静态 busybox 所需 syscall 子集
-L3  动态 ELF interpreter、更多 ioctl/fcntl/stat/signal
-L4  更完整 POSIX/Linux 用户态兼容
+task_struct
+  scheduler state
+  kernel stack
+  trap frame
+  signal/exit state
+
+mm_struct
+  AddressSpace
+  VMA list
+  refcount
+
+files_struct
+  fd table
+  close-on-exec bitmap
+  refcount
+
+file
+  inode/dentry
+  offset
+  flags
+  refcount
+
+process
+  pid
+  parent
+  children
+  thread group
+  exit code
+  zombie state
 ```
 
-当前处于 L0，正在向 L1 准备。
+系统调用语义：
 
-### 同步和 Rust 安全边界
+1. `fork()`：复制当前进程上下文，父进程返回 child pid，子进程返回 0。
+2. `exec(path, argv, envp)`：替换当前 `mm_struct`，保留 pid，按 close-on-exec 关闭 fd。
+3. `exit(code)`：关闭资源，进入 zombie，唤醒父进程。
+4. `waitpid(pid, status, options)`：收割 zombie 子进程，必要时阻塞。
+5. `clone(flags, stack)`：按 flags 共享或复制 `mm/files/sighand`。
+
+设计边界：
+
+1. `task_struct` 是调度实体，`process` 是资源和父子关系容器。
+2. 内核线程没有用户 `mm_struct`，用户线程必须有有效 `mm_struct`。
+3. `exec()` 失败不得破坏旧地址空间。
+4. `exit()` 不能直接释放当前正在使用的 kernel stack，由 reaper 延迟回收。
+5. fd、mm、file、inode 都需要引用计数，避免 fork/exit/wait 交错时悬垂。
+6. 用户态 fault 默认变成当前进程异常退出，内核态 fault 才 panic。
+
+验收标准：
+
+1. `fork()` 后父子进程可独立运行，寄存器返回值符合约定。
+2. `exec()` 后 pid 不变，用户 PC/SP/地址空间替换成功。
+3. `waitpid()` 能拿到子进程 exit code，并释放 zombie。
+4. `clone()` 可创建共享地址空间的线程，调度器按独立 task 调度。
+5. 父进程退出时，孤儿进程能被 init/reaper 接管。
+6. 连续 spawn/exit/wait 不泄漏 kernel stack、user pages、fd、process slot。
+
+当前状态：
+
+1. 已有 `ProcessId`、`ThreadId`、`ProcessTable`、用户地址空间和最小 fd 表。
+2. 已支持 `spawn/exec/wait/exit` 的最小语义。
+3. reaper 能回收 task、mm、files，并保留 zombie 退出状态给父进程收割。
+4. 用户任务已经运行在 User mode，通过 SVC 进入内核。
+
+下一步：
+
+1. 把 `FileTable` 改成引用计数 `files_struct`。
+2. 实现 `fork()`，先完整复制地址空间，再升级为 COW。
+3. 实现 `clone()`，支持线程组共享 `mm/files`。
+4. 补 `waitpid` flags、进程组、可中断睡眠和用户异常退出状态。
+5. 为 `exec()` 补 close-on-exec、argv/envp/auxv 和用户栈初始布局。
+6. 增加 init/reparent 规则，避免父进程退出后 zombie 无人收割。
+
+### L4：VFS
+
+统一接口：
+
+1. `File`。
+2. `Directory`。
+3. `Inode`。
+4. `Dentry`。
+5. `Mount`。
+6. `SuperBlock`。
+
+支持：
+
+1. RamFS。
+2. DevFS。
+3. ProcFS。
+4. TmpFS。
+5. FAT32。
+6. EXT2。
+7. EXT4。
+
+设计要求：
+
+1. 上层 syscall 只依赖 VFS，不直接依赖具体文件系统。
+2. 新增文件系统不修改 `read/write/open/close/exec` 上层路径。
+3. 目录、普通文件、设备文件、管道和 socket 都统一成 file operations。
+
+当前状态：
+
+1. 已有 VFS、ramfs、只读内嵌 initrd、archive parser。
+2. 外部 cpio/tar rootfs 已可解包到可写 ramfs。
+3. `open/read/write/close/spawn/exec` 已通过 VFS 访问 regular file。
+
+下一步：
+
+1. 引入 `File` 引用计数、共享 offset、flags、close-on-exec。
+2. 增加 `Dentry` cache、`Mount` table、path resolver。
+3. 支持 `getdents/stat/lseek/truncate/mkdir/unlink/rename/symlink`。
+4. 增加 DevFS：`/dev/console`、`/dev/null`、`/dev/zero`、块设备节点。
+5. 增加 ProcFS：`/proc/meminfo`、`/proc/mounts`、`/proc/<pid>`。
+6. 有 block layer 后接 FAT32 或 EXT2，先只读再读写。
+
+### L5：Driver Framework
+
+驱动统一管理：
+
+1. UART。
+2. GPIO。
+3. RTC。
+4. Timer。
+5. Block。
+6. Input。
+7. GPU。
+8. Network。
+
+支持：
+
+1. VirtIO。
+2. PCI。
+3. USB。
+
+当前状态：
+
+1. UART/GIC/timer 已能从 FDT 或 fallback 初始化。
+2. UART RX/timeout IRQ 已接入 console line discipline。
+3. VirtIO MMIO transport 和 virtio-blk probe 骨架已存在。
+
+下一步：
+
+1. 建立 device manager，统一 `probe/bind/remove/irq` 生命周期。
+2. 完成 virtio-blk vring、DMA buffer、request queue、完成中断。
+3. 增加 block device trait，并接入 VFS/DevFS。
+4. 扩展 FDT `ranges`、`interrupt-parent`、`interrupt-map`。
+5. 后续再做 PCI/USB；在 QEMU ARM virt 上优先 VirtIO。
+
+### L6：IPC
+
+实现：
+
+1. Pipe。
+2. Socket。
+3. Shared Memory。
+4. Semaphore。
+5. Mutex。
+6. CondVar。
+7. Event。
+
+目标：
+
+1. 进程之间能交换字节流、共享页和同步状态。
+2. 阻塞 IPC 全部走 wait queue。
+3. fd 表能同时管理普通文件、设备、pipe 和 socket。
 
 路线：
 
-1. 引入 `SpinLock<T>`，单核阶段用关 IRQ 保护临界区。
-2. 区分 IRQ-safe lock 和线程上下文 lock。
-3. 引入 `OnceCell` 或初始化状态机替代裸 `static mut`。
-4. 把页表、MMIO、上下文切换、用户拷贝等 `unsafe` 封装在底层模块。
-5. 上层调度器、VFS、进程管理尽量暴露安全 API。
-6. 为关键 `unsafe` 写清楚不变量：对齐、生命周期、CPU 模式、页表权限、MMIO 顺序。
+1. 先实现 pipe：ring buffer + reader/writer wait queue。
+2. 再实现匿名 shared memory：页引用计数 + 多进程映射。
+3. 内核同步对象先支持 futex-like wait/wake 子集。
+4. socket API 等网络栈 L7 可用后再完整接入。
 
-### 测试和调试
+### L7：Network
+
+协议栈：
+
+1. Ethernet。
+2. ARP。
+3. IPv4。
+4. UDP。
+5. TCP。
+6. DNS。
+7. DHCP。
+
+接口：
+
+1. BSD Socket。
+
+最终能够：
+
+1. `ping`。
+2. `wget`。
+3. `ssh`。
+
+当前状态：
+
+1. 已有固定容量 `net_device` 风格接口表，记录 `name/MAC/IPv4/MTU/state/stats`。
+2. 已有 RX/TX packet queue，后续 virtio-net DMA 完成后可直接对接收发路径。
+3. 已实现 Ethernet、ARP、IPv4、ICMP echo、UDP parser/writer。
+4. 网络输入入口 `handle_rx()` 可分类以太网帧，ARP request 命中本机 IPv4 时生成 ARP reply，ICMP echo request 命中本机 IPv4 时生成 echo reply。
+5. virtio-net probe/bind 已接入 VirtIO MMIO、device manager、GIC IRQ enable 和网络接口注册。
+6. `configs/qemu_virt_net_defconfig` 可显式启用 QEMU virtio-net。
 
 路线：
 
-1. 保留 `make readelf/nm/objdump/debug`。
-2. 增加 QEMU smoke test，串口匹配 `fs:`、`ramfs-write-ok`、`user$`。
-3. 将 ready queue、sleep queue、wait queue、buddy allocator、archive parser 抽成 host-testable 模块。
-4. 增加异常测试配置，覆盖 undefined、data abort、prefetch abort、bad syscall。
-5. CI 至少覆盖 `make defconfig && make build`、host tests、QEMU smoke。
+1. 完成 virtio-net vring DMA：描述符、avail/used ring、RX buffer refill、TX complete reclaim。
+2. 把驱动 RX 中断接到 `net::handle_rx()`，把 TX queue 接到 virtqueue kick。
+3. 增加 ARP cache、路由表和邻居解析，避免每次发送都广播。
+4. 增加 UDP socket：端口绑定、接收队列、阻塞 `read/write`、`poll` 前置。
+5. 实现 DHCP client 和 DNS resolver。
+6. 实现 TCP 最小状态机，支持 connect/read/write/close。
+7. 通过 socket fd 接入 VFS file operations，补 `socket/bind/connect/listen/accept/send/recv`。
+
+### L8：Userspace
+
+支持：
+
+1. ELF。
+2. 动态链接可后续。
+3. libc。
+4. Rust std 可选。
+
+应用：
+
+1. Shell。
+2. `ls`。
+3. `cat`。
+4. `echo`。
+5. `top`。
+6. `ps`。
+
+当前状态：
+
+1. 已能加载最小 ELF32 ARM 用户程序。
+2. 已有 builtin user shell 走 `read(0)` 和 `write(1)`。
+3. ELF loader 已支持 `ET_EXEC`、`ET_DYN`、`PT_LOAD`、`PT_PHDR`、`PT_INTERP`。
+4. 动态 ELF 带 `PT_INTERP` 时，内核会从 VFS 查找解释器并映射到独立基址，入口切换到解释器。
+5. 用户初始栈已按 Linux 风格放置 `argc/argv/envp/auxv`，包含 `AT_PHDR`、`AT_PHENT`、`AT_PHNUM`、`AT_PAGESZ`、`AT_BASE`、`AT_ENTRY`。
+6. syscall 已补 `readv/writev`、`fcntl`、`ioctl`、`access`、`fstat`、`newfstatat`、`getpid/getppid`、`uname`、`gettimeofday/clock_gettime`。
+7. 地址空间已补 `brk`、匿名 `mmap`、fd-backed `mmap`、`MAP_FIXED`、部分区间 `munmap`、实际 PTE 权限更新的 `mprotect`。
+8. 已补 `/proc/self/exe`、`/dev/urandom`、`/tmp`、基础 credentials 和 umask。
+9. 已建立独立 Rust no_std userspace support crate 和用户程序构建链，可生成 `/bin/init`、shell、`ls/cat/echo` 的本内核 ABI ELF。
+10. 外部 rootfs 中的 Linux busybox 目前仍主要作为文件系统兼容测试样本；运行动态 Linux 用户态还需要继续补 Linux syscall ABI、signal、完整 VFS 和动态链接器约定。
+
+下一步：
+
+1. 增加 Linux ARM EABI syscall 入口兼容层，支持 `r7=nr, r0..r6=args`，同时保留本内核 ABI。
+2. 补 `execve(argv/envp)`、`wait4`、`dup/dup2/dup3`、`pipe2`、`getcwd/chdir`、`readlink`、`poll/select`、`rt_sigaction/rt_sigprocmask` 最小语义。
+3. 把 VFS `Stat` 升级为 Linux `stat/statx` 兼容布局，补真实 inode mode、nlink、uid/gid、mtime/ctime。
+4. 建立共享 fd offset、file refcount、close-on-exec bitmap，靠近 Linux `files_struct + file` 模型。
+5. 支持静态 busybox 的最小 syscall 子集，并加入 QEMU smoke test 自动运行 `/bin/busybox --help`。
+6. 后续再实现 ELF 动态链接器需要的 TLS、auxv 完整字段、`set_tid_address`、`futex`、robust list、更多 `/proc`/`/sys` 约定。
+7. 最后推进动态 busybox/musl，再考虑 glibc。
 
 ## 已知限制
 
-1. 外部 rootfs 里的 Linux busybox 当前只能作为文件读写样本，不能直接运行。
-2. 没有完整 Linux syscall ABI、动态链接器、signal、`mmap/brk/fork/execve` 完整语义。
-3. VFS 还没有完整 dentry cache、mount table、symlink、目录枚举和引用计数 file 对象。
+1. 外部 rootfs 里的 Linux busybox 当前只能作为文件读写样本，不能直接运行；本轮新增的是本内核 ABI 用户程序构建链。
+2. 没有完整 Linux syscall ABI、signal、`fork/execve/wait4` 完整语义和动态链接器运行环境。
+3. VFS 还没有完整 dentry cache、mount table、symlink 解析和引用计数 file 对象。
 4. virtio-blk 目前是 probe/初始化骨架，还没有块 I/O。
 5. 用户指针拷贝是页表 preflight，还不是 Linux exception table fault fixup。
 6. D-cache 暂时关闭。

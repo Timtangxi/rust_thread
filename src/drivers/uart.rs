@@ -3,6 +3,7 @@ use core::ptr::{read_volatile, write_volatile};
 
 use aarch32_cpu::asm;
 
+use crate::drivers::device::{self, DeviceClass, DeviceId, DeviceNode, DeviceState};
 use crate::platform::{fdt, qemu_virt};
 
 static mut UART_BASE: usize = qemu_virt::UART0_BASE;
@@ -53,6 +54,26 @@ pub fn init() {
     }
 }
 
+pub fn register_device() -> Option<DeviceId> {
+    let device_info = fdt::uart0();
+    let id = device::register(DeviceNode {
+        id: DeviceId::new(usize::MAX),
+        name: "pl011",
+        driver: "pl011-uart",
+        class: DeviceClass::Uart,
+        state: DeviceState::Bound,
+        mmio_base: device_info.reg.start,
+        mmio_size: device_info.reg.size,
+        irq: device_info.irq.irq,
+        major: 4,
+        minor: 64,
+        wait_channel: crate::kernel::console::INPUT_WAIT_CHANNEL,
+    })
+    .ok()?;
+    let _ = device::mark_ready(id);
+    Some(id)
+}
+
 pub fn base() -> usize {
     unsafe { UART_BASE }
 }
@@ -68,11 +89,14 @@ pub fn put_byte(byte: u8) {
     }
 }
 
+pub fn rx_ready() -> bool {
+    unsafe { read_reg(UART_FR) & FR_RXFE == 0 }
+}
+
 pub fn handle_irq<F>(mut on_byte: F) -> usize
 where
     F: FnMut(u8),
 {
-    let mut count = 0;
     unsafe {
         let status = read_reg(UART_MIS);
         if status & (MIS_RXMIS | MIS_RTMIS) == 0 {
@@ -81,6 +105,36 @@ where
             return 0;
         }
 
+        let count = drain_rx_fifo(&mut on_byte);
+
+        write_reg(UART_RSR_ECR, 0);
+        write_reg(UART_ICR, ICR_RXIC | ICR_RTIC);
+        asm::dsb();
+        count
+    }
+}
+
+pub fn poll_rx<F>(mut on_byte: F) -> usize
+where
+    F: FnMut(u8),
+{
+    unsafe {
+        let count = drain_rx_fifo(&mut on_byte);
+        if count != 0 {
+            write_reg(UART_RSR_ECR, 0);
+            write_reg(UART_ICR, ICR_RXIC | ICR_RTIC);
+            asm::dsb();
+        }
+        count
+    }
+}
+
+unsafe fn drain_rx_fifo<F>(on_byte: &mut F) -> usize
+where
+    F: FnMut(u8),
+{
+    let mut count = 0;
+    unsafe {
         while read_reg(UART_FR) & FR_RXFE == 0 {
             let data = read_reg(UART_DR);
             if data & 0x0f00 == 0 {
@@ -88,10 +142,6 @@ where
                 count += 1;
             }
         }
-
-        write_reg(UART_RSR_ECR, 0);
-        write_reg(UART_ICR, ICR_RXIC | ICR_RTIC);
-        asm::dsb();
     }
     count
 }
